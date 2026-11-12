@@ -26,7 +26,8 @@ YTDLP_COOKIES_FROM_BROWSER = os.environ.get("MUSICAPP_COOKIES_FROM_BROWSER", "")
 MAX_UPLOAD_MB = int(os.environ.get("MUSICAPP_MAX_UPLOAD_MB", "300"))
 
 # Password for the live link. When set, every page and API call needs a login.
-PASSWORD = os.environ.get("MUSICAPP_PASSWORD", "")
+# stripped: cmd keeps stray spaces after "set X=...", which made the typed password never match
+PASSWORD = os.environ.get("MUSICAPP_PASSWORD", "").strip()
 
 
 @lru_cache(maxsize=1)

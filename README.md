@@ -31,6 +31,11 @@ one song at a time, and the songs stay in your library (stored in the `data` fol
 If YouTube says *"Sign in to confirm you're not a bot"*, open `settings.bat`, turn on the
 `MUSICAPP_COOKIES_FROM_BROWSER` line with the browser you're signed in to YouTube with, and restart `run.bat`.
 
+**Open it from anywhere (phone, another computer):** set a password of 12+ characters on the
+`MUSICAPP_PASSWORD` line in `settings.bat`, close `run.bat`, and double-click **`share.bat`** instead. It prints a
+`https://….trycloudflare.com` link (a free Cloudflare quick tunnel to your PC; no account needed). The link changes
+every time you start `share.bat`, and your PC must stay on while you use it.
+
 > Downloading from YouTube is against YouTube's terms of service and the songs are copyrighted.
 > This is meant as a personal practice tool. Don't redistribute what it produces.
 

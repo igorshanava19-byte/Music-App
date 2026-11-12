@@ -68,22 +68,26 @@ def run_model(name: str, mix: np.ndarray, sr: int, progress: Callable[[float], N
     return {src: out[i] for i, src in enumerate(model.sources)}
 
 
+def active_frames(mix: np.ndarray, stem: np.ndarray, sr: int) -> np.ndarray:
+    """Per 100 ms frame: is the stem within 30 dB of the mix there (playing, not bleed)?"""
+    hop = sr // 10
+    n = stem.shape[-1] // hop
+    frames = stem.mean(0)[: n * hop].reshape(n, hop)
+    mix_frames = mix.mean(0)[: n * hop].reshape(n, hop)
+    rms = np.sqrt((frames ** 2).mean(1) + 1e-12)
+    mix_rms = np.sqrt((mix_frames ** 2).mean(1) + 1e-12)
+    return (rms / mix_rms) > 10 ** (-30 / 20)
+
+
 def stem_presence(mix: np.ndarray, stem: np.ndarray, sr: int) -> dict:
     """How much of the song a stem actually plays in (to skip empty instruments)."""
     mono_mix = mix.mean(0)
     mono = stem.mean(0)
-    hop = sr // 10  # 100 ms frames
-    n = len(mono) // hop
-    if n == 0:
+    active = active_frames(mix, stem, sr)
+    if len(active) == 0:
         return {"level_db": -120.0, "active": 0.0}
-    frames = mono[: n * hop].reshape(n, hop)
-    mix_frames = mono_mix[: n * hop].reshape(n, hop)
-    rms = np.sqrt((frames ** 2).mean(1) + 1e-12)
-    mix_rms = np.sqrt((mix_frames ** 2).mean(1) + 1e-12)
     overall = 20 * np.log10(np.sqrt((mono ** 2).mean() + 1e-12) / (np.sqrt((mono_mix ** 2).mean()) + 1e-12))
-    # a frame counts as active when the stem is within 30 dB of the mix there
-    active = float(((rms / mix_rms) > 10 ** (-30 / 20)).mean())
-    return {"level_db": round(float(overall), 1), "active": round(active, 3)}
+    return {"level_db": round(float(overall), 1), "active": round(float(active.mean()), 3)}
 
 
 def is_present(presence: dict) -> bool:

@@ -27,6 +27,15 @@ async def lifespan(_app):
 app = FastAPI(title="Music App", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.middleware("http")(auth.middleware)
 
+
+@app.middleware("http")
+async def revalidate_ui(request: Request, call_next):
+    # without this, browsers keep an old app.js/style.css after an update (cheap 304s when unchanged)
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".aiff", ".aif",
                     ".mp4", ".mkv", ".webm", ".mov"}
 

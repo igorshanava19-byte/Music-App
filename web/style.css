@@ -123,7 +123,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1rem 6rem; }
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .mixer { display: grid; gap: .4rem; margin-top: .75rem; }
 .stem-row {
-  display: grid; grid-template-columns: minmax(120px, 1.3fr) auto auto minmax(80px, 2fr) auto;
+  display: grid; grid-template-columns: minmax(120px, 1.3fr) auto auto auto minmax(80px, 2fr) auto;
   align-items: center; gap: .6rem; padding: .45rem .6rem; border-radius: 8px; background: var(--surface-2);
 }
 .stem-row.absent { opacity: .55; }
@@ -181,7 +181,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1rem 6rem; }
 @media (max-width: 700px) {
   .url-row { flex-direction: column; }
   .chord-chart { grid-template-columns: repeat(2, 1fr); }
-  .stem-row { grid-template-columns: 1fr auto auto; }
+  .stem-row { grid-template-columns: 1fr auto auto auto; }
   .stem-row input[type=range], .stem-row a { grid-column: 1 / -1; }
   .transport { flex-wrap: wrap; gap: .4rem .6rem; }
   .transport input[type=range] { order: 10; flex-basis: 100%; }

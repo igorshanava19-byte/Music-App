@@ -253,6 +253,14 @@ class Mixer {
       audio.preservesPitch = true;
       return { ...inst, audio, volume: 1, mute: inst.stem === 'vocals', solo: false };
     });
+    // the finished mp3s (the minus track uses the cleaner vocal model than the stems), played in sync with the stems
+    this.files = [['minus', r.files.minus_mp3, 'Minus track'], ['vocals_only', r.files.vocals, 'Vocals only'],
+      ['original', r.files.original, 'Original']].map(([key, file, label]) => ({
+      key, label,
+      audio: Object.assign(new Audio(fileUrl(job.id, file)), { preload: key === 'minus' ? 'auto' : 'metadata', preservesPitch: true }),
+    }));
+    this.all = [...this.stems, ...this.files];
+    this.source = null; // key of the file being heard, or null for the stem mix
     this.master = this.stems.find((s) => s.present) || this.stems[0];
     this.duration = r.duration;
     this.buildUI();
@@ -271,20 +279,32 @@ class Mixer {
   buildUI() {
     const mixer = $('#mixer');
     for (const s of this.stems) {
+      const playBtn = el('button', { class: 'play', title: 'Play only this part', 'aria-label': `Play only ${s.label}` }, '▶');
       const muteBtn = el('button', { class: 'mute', title: 'Mute' }, 'M');
       const soloBtn = el('button', { class: 'solo', title: 'Solo' }, 'S');
       const vol = el('input', { type: 'range', min: 0, max: 1, step: 0.01, value: 1, 'aria-label': `${s.label} volume` });
-      muteBtn.onclick = () => { s.mute = !s.mute; this.applyGains(); this.clearPreset(); };
-      soloBtn.onclick = () => { s.solo = !s.solo; this.applyGains(); this.clearPreset(); };
-      vol.oninput = () => { s.volume = Number(vol.value); this.applyGains(); };
-      s.ui = { muteBtn, soloBtn, vol };
+      playBtn.onclick = () => this.playOnly(s);
+      muteBtn.onclick = () => { s.mute = !s.mute; this.clearPreset(); this.applyGains(); };
+      soloBtn.onclick = () => { s.solo = !s.solo; this.clearPreset(); this.applyGains(); };
+      vol.oninput = () => { s.volume = Number(vol.value); if (this.source) this.clearPreset(); this.applyGains(); };
+      s.ui = { playBtn, muteBtn, soloBtn, vol };
       const note = s.present ? `${s.level_db} dB` : 'barely present';
       mixer.append(el('div', { class: `stem-row${s.present ? '' : ' absent'}` },
-        el('span', { class: 'name' }, s.label, el('small', {}, note)), muteBtn, soloBtn, vol,
+        el('span', { class: 'name' }, s.label, el('small', {}, note)), playBtn, muteBtn, soloBtn, vol,
         el('a', { href: fileUrl(this.job.id, s.file, true), download: '', title: 'Download this stem (FLAC)' }, '⬇')));
     }
+    const presetOf = { minus: 'minus', vocals_only: 'vocals', original: 'all' };
+    for (const f of this.files) {
+      f.btn = el('button', { class: f.key === 'minus' ? 'primary' : '' }, `▶ ${f.label}`);
+      f.btn.onclick = () => {
+        if (this.playing && this.source === f.key) return this.pause();
+        this.preset(presetOf[f.key]);
+        this.play();
+      };
+    }
+    $('#minus-play').append(...this.files.map((f) => f.btn));
     $$('[data-preset]').forEach((b) => b.addEventListener('click', () => this.preset(b.dataset.preset)));
-    this.markPreset('minus');
+    this.preset('minus');
 
     const play = $('#tp-play'), seek = $('#tp-seek');
     play.onclick = () => this.toggle();
@@ -299,20 +319,41 @@ class Mixer {
       s.solo = false;
       s.mute = name === 'minus' ? s.stem === 'vocals' : name === 'vocals' ? s.stem !== 'vocals' : false;
     }
+    this.source = { minus: 'minus', vocals: 'vocals_only', all: 'original' }[name] || null;
     this.applyGains();
     this.markPreset(name);
   }
   markPreset(name) { $$('[data-preset]').forEach((b) => b.classList.toggle('on', b.dataset.preset === name)); }
-  clearPreset() { this.markPreset(null); }
+  clearPreset() { this.source = null; this.markPreset(null); } // back to the stem mix
+
+  playOnly(s) {
+    const already = this.playing && !this.source && this.stems.every((x) => x.solo === (x === s));
+    if (already) return this.pause();
+    for (const x of this.stems) x.solo = x === s;
+    this.clearPreset();
+    this.applyGains();
+    this.play();
+  }
 
   applyGains() {
     const anySolo = this.stems.some((s) => s.solo);
     for (const s of this.stems) {
-      const audible = anySolo ? s.solo : !s.mute;
-      s.audio.volume = audible ? s.volume : 0;
+      const audible = !this.source && (anySolo ? s.solo : !s.mute);
+      s.audio.volume = s.volume;
+      s.audio.muted = !audible; // iPhones ignore .volume set by a page, but respect .muted
       s.ui.muteBtn.classList.toggle('on', s.mute);
       s.ui.soloBtn.classList.toggle('on', s.solo);
     }
+    for (const f of this.files) f.audio.muted = f.key !== this.source;
+    this.updatePlayButtons();
+  }
+
+  updatePlayButtons() {
+    const solos = this.stems.filter((s) => s.solo);
+    for (const s of this.stems) {
+      s.ui.playBtn.textContent = this.playing && !this.source && solos.length === 1 && solos[0] === s ? '❚❚' : '▶';
+    }
+    for (const f of this.files) f.btn.textContent = `${this.playing && this.source === f.key ? '❚❚' : '▶'} ${f.label}`;
   }
 
   get time() { return this.master.audio.currentTime; }
@@ -321,21 +362,23 @@ class Mixer {
   async play() {
     this.onPlay && this.onPlay();
     const t = this.time;
-    for (const s of this.stems) s.audio.currentTime = t;
-    await Promise.all(this.stems.map((s) => s.audio.play().catch(() => {})));
+    for (const s of this.all) s.audio.currentTime = t;
+    await Promise.all(this.all.map((s) => s.audio.play().catch(() => {})));
     $('#tp-play').textContent = '❚❚';
+    this.updatePlayButtons();
   }
   pause() {
-    for (const s of this.stems) s.audio.pause();
+    for (const s of this.all) s.audio.pause();
     $('#tp-play').textContent = '▶';
+    this.updatePlayButtons();
   }
   toggle() { this.playing ? this.pause() : this.play(); }
   seek(t) {
     t = Math.max(0, Math.min(this.duration, t));
-    for (const s of this.stems) s.audio.currentTime = t;
+    for (const s of this.all) s.audio.currentTime = t;
   }
   setSpeed(rate) {
-    for (const s of this.stems) { s.audio.playbackRate = rate; s.audio.preservesPitch = true; }
+    for (const s of this.all) { s.audio.playbackRate = rate; s.audio.preservesPitch = true; }
     this.speedListeners?.forEach((fn) => fn(rate));
   }
   onSpeed(fn) { (this.speedListeners ||= []).push(fn); }
@@ -359,7 +402,7 @@ class Mixer {
     const now = performance.now();
     if (this.playing && now - this.lastSync > 500) {
       this.lastSync = now;
-      for (const s of this.stems) {
+      for (const s of this.all) {
         if (s !== this.master && Math.abs(s.audio.currentTime - t) > 0.04) s.audio.currentTime = t;
       }
     }
@@ -374,7 +417,7 @@ class Mixer {
   destroy() {
     cancelAnimationFrame(this.raf);
     document.removeEventListener('keydown', this.keyHandler);
-    for (const s of this.stems) { s.audio.pause(); s.audio.src = ''; }
+    for (const s of this.all) { s.audio.pause(); s.audio.src = ''; }
   }
 }
 
@@ -504,13 +547,14 @@ class SheetView {
   buildToggles() {
     const box = $('#track-toggles');
     box.replaceChildren(...this.tracks.map((t) => {
-      const chip = el('button', { class: 'chip on' }, t.name);
+      const chip = el('button', { class: 'chip on', title: 'Show and play this part' }, t.name);
       chip.onclick = () => {
         if (this.selected.has(t.index)) {
           if (this.selected.size === 1) return; // keep at least one
           this.selected.delete(t.index);
         } else this.selected.add(t.index);
         chip.classList.toggle('on', this.selected.has(t.index));
+        this.api.changeTrackMute([t], !this.selected.has(t.index)); // hidden parts are silent too
         this.api.renderTracks(this.tracks.filter((x) => this.selected.has(x.index)));
       };
       return chip;

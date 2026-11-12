@@ -6,7 +6,7 @@ if not exist .venv\Scripts\python.exe (
     pause
     exit /b 1
 )
-if exist settings.bat call settings.bat
+if exist "%~dp0settings.bat" call "%~dp0settings.bat"
 set MUSICAPP_OPEN_BROWSER=1
 .venv\Scripts\python.exe -m app
 pause

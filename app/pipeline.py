@@ -104,7 +104,8 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
     rhythm = harmonic + mono["bass"] + mono["drums"]
     tempo, beats = analysis.beat_grid(rhythm, duration)
     progress("analyze", 0.3)
-    bass_for_chords = mono["bass"] if "bass" in present else None
+    # no bass guitar (e.g. a piano ballad): the low end of the keys/guitar carries the roots
+    bass_for_chords = mono["bass"] if "bass" in present else harmonic
     # key first (for chord spelling), from the same harmonic signal
     import librosa
     key_chroma = librosa.feature.chroma_cqt(y=harmonic + 0.5 * mono["bass"], sr=analysis.SR, hop_length=analysis.HOP)
@@ -130,6 +131,9 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
             notes = transcription.transcribe_drums(stems["drums"], sr)
         else:
             notes = transcription.transcribe_pitched(stems_dir / f"{stem}.flac", stem)
+            # Basic Pitch hears notes in near-silent bleed; keep only notes where the stem really plays
+            active = separation.active_frames(mix, stems[stem], sr)
+            notes = [n for n in notes if active[int(n.start * 10): int(n.end * 10) + 1].any()]
         if len(notes) >= 8:
             parts[stem] = notes
     progress("transcribe", 1.0)

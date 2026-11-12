@@ -134,7 +134,8 @@ def recognize_chords(harmonic: np.ndarray, bass: np.ndarray | None, beats: np.nd
 
     bass_seg = None
     if bass is not None:
-        bchroma = librosa.feature.chroma_cqt(y=bass, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("E1"), n_octaves=3)
+        # A0-A3: the bass register, below where a pianist's right hand plays
+        bchroma = librosa.feature.chroma_cqt(y=bass, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_octaves=3)
         bass_seg = np.zeros((12, len(beats)))
         for i in range(len(beats)):
             a = beat_frames[i]
@@ -151,7 +152,8 @@ def recognize_chords(harmonic: np.ndarray, bass: np.ndarray | None, beats: np.nd
     if bass_seg is not None:
         bnorm = bass_seg / (bass_seg.max(0, keepdims=True) + 1e-9)
         roots = np.array([r for r, _ in labels])
-        scores += 0.12 * bnorm[roots] * bass_active[None, :]
+        # 0.2: enough for the bass to beat right-hand anticipations of the next chord (0.3 over-splits bars)
+        scores += 0.2 * bnorm[roots] * bass_active[None, :]
 
     # "no chord" state for silent beats
     silent = energy < (np.percentile(energy, 95) * 0.03)

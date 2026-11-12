@@ -47,7 +47,7 @@ echo [4/4] Downloading the AI models and checking everything works...
 if not exist settings.bat copy settings.example.bat settings.bat >nul
 
 echo.
-echo === Setup finished! Double-click run.bat to start Music App. ===
+echo === Setup finished. Double-click run.bat to start Music App. ===
 echo.
 pause
 exit /b 0

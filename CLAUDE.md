@@ -15,7 +15,12 @@ Personal tool for the owner (plays guitar, piano/keys, bass). Runs locally on th
 - Done and tested on CPU in the cloud: upload → 6 stems → minus track → tempo/key/chords → transcription →
   MusicXML/MIDI → web UI (mixer, chord chart with transpose/capo/Nashville, alphaTab sheet music with
   notation + tab for guitar/bass).
-- Not yet tested: Windows `setup.bat`, CUDA processing, YouTube download (YouTube blocks cloud IPs).
+- Tested on the owner's PC (2026-11-12): `setup.bat`, CUDA on a GTX 1080 Ti (torch 2.14.1+cu126 still has
+  sm_61), YouTube download without cookies, ~95 s per song, stem mixer drift < 20 ms.
+- Fixed after the test song: notes transcribed from near-silent stem bleed (now gated to where the stem is
+  within 30 dB of the mix, `separation.active_frames`); chords in songs without a bass guitar now use the
+  low end of the keys/guitar for roots (bass weight 0.2). `fluidsynth` is not installed on the PC, so
+  `tools/make_test_song.py` was not run.
 - Owner's test song: https://www.youtube.com/watch?v=Nkdw4PyPvyI. Run it first on their PC and review the
   chord chart and sheet music with them.
 
@@ -40,6 +45,7 @@ a better piano transcription model, separate acoustic vs electric guitar.
 - Password protection is built in: set `MUSICAPP_PASSWORD` in settings.bat (app/auth.py; signed 30-day
   cookie, /static and /login stay public, API returns 401 without login).
 - Owner first asked for Vercel; explained it can't run this (no GPU, short function limits), and processing
-  must stay on the PC. Still to decide with the owner: Cloudflare Tunnel (no account; link changes on restart),
-  Tailscale Funnel (free account, permanent https link), or ngrok (free account, one permanent domain).
-  Then add a `share.bat` that starts the tunnel next to run.bat, and refuse to start it without a password.
+  must stay on the PC. Owner chose Cloudflare quick tunnel (2026-11-12): `share.bat` downloads cloudflared into
+  .venv, refuses without a 12+ char password or if the port is already in use (an unprotected run.bat copy),
+  then starts the app + tunnel. Refusal paths tested; the owner runs the tunnel itself (not tested end to end
+  by Claude). If the changing link gets annoying, Tailscale Funnel gives a permanent one.
