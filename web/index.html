@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music App</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎼</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand">🎼 Music App</a>
+    <span id="device-badge" class="badge" hidden></span>
+  </header>
+
+  <main id="view"></main>
+
+  <!-- Library ---------------------------------------------------------------->
+  <template id="tpl-library">
+    <section class="card add-song">
+      <h1>Add a song</h1>
+      <p class="muted">Paste a YouTube link or drop an audio file. You'll get a minus track, every instrument on its own, chord charts and sheet music.</p>
+      <form id="add-form" autocomplete="off">
+        <div class="url-row">
+          <input id="url-input" type="url" placeholder="https://www.youtube.com/watch?v=..." aria-label="YouTube link">
+          <button type="submit" class="primary">Process</button>
+        </div>
+        <label id="drop-zone" class="drop-zone">
+          <input id="file-input" type="file" accept="audio/*,video/*,.mp3,.wav,.flac,.m4a,.ogg,.opus,.aiff" hidden>
+          <span>…or <u>choose an audio file</u> / drag it here</span>
+        </label>
+        <p id="add-error" class="error" hidden></p>
+      </form>
+    </section>
+    <section>
+      <h2>Your songs</h2>
+      <ul id="song-list" class="song-list"></ul>
+      <p id="empty-list" class="muted" hidden>No songs yet. Add one above.</p>
+    </section>
+  </template>
+
+  <!-- Song --------------------------------------------------------------------->
+  <template id="tpl-song">
+    <section class="song-head">
+      <a href="#/" class="back">← All songs</a>
+      <h1 id="song-title"></h1>
+      <div id="song-meta" class="meta"></div>
+    </section>
+
+    <section id="song-progress" class="card" hidden>
+      <div class="progress-label"><span id="progress-msg"></span><span id="progress-pct"></span></div>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p class="muted small">You can leave this page; processing continues in the background.</p>
+    </section>
+    <section id="song-error" class="card error-card" hidden></section>
+
+    <div id="song-body" hidden>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="mix" role="tab">Minus track &amp; stems</button>
+        <button class="tab" data-tab="chords" role="tab">Chords</button>
+        <button class="tab" data-tab="sheet" role="tab">Sheet music</button>
+      </nav>
+
+      <section class="tab-panel" data-panel="mix">
+        <div class="card">
+          <h2>Minus track</h2>
+          <p class="muted">The full song with the vocals removed.</p>
+          <div class="downloads" id="minus-downloads"></div>
+        </div>
+        <div class="card">
+          <div class="mixer-head">
+            <h2>Stem mixer</h2>
+            <div class="presets">
+              <button class="chip" data-preset="minus">Minus (no vocals)</button>
+              <button class="chip" data-preset="all">Full song</button>
+              <button class="chip" data-preset="vocals">Vocals only</button>
+            </div>
+          </div>
+          <p class="muted small">Mute or solo any instrument to practice along. Speed changes keep the pitch.</p>
+          <div id="mixer" class="mixer"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="chords" hidden>
+        <div class="card">
+          <div class="chord-tools">
+            <div class="tool">
+              <span class="tool-label">Transpose</span>
+              <button class="icon-btn" id="tr-down" aria-label="Transpose down">−</button>
+              <span id="tr-value" class="tr-value">0</span>
+              <button class="icon-btn" id="tr-up" aria-label="Transpose up">+</button>
+            </div>
+            <div class="tool"><span class="tool-label">Key</span> <strong id="tr-key"></strong></div>
+            <div class="tool"><label><input type="checkbox" id="show-nashville"> Numbers (Nashville)</label></div>
+            <div class="tool" id="capo-tip"></div>
+          </div>
+          <div id="chord-summary" class="chord-summary"></div>
+          <div id="chord-chart" class="chord-chart"></div>
+          <p class="muted small">Click a bar to jump there. Chords are detected automatically; expect the odd mistake.</p>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="sheet" hidden>
+        <div class="card sheet-card">
+          <div class="sheet-tools">
+            <div id="track-toggles" class="track-toggles"></div>
+            <div class="sheet-actions">
+              <button id="at-play" class="primary" disabled>▶ Play score</button>
+              <select id="at-zoom" aria-label="Zoom">
+                <option value="0.7">70%</option><option value="0.85">85%</option>
+                <option value="1" selected>100%</option><option value="1.2">120%</option>
+              </select>
+              <select id="at-layout" aria-label="Layout">
+                <option value="Page" selected>Page</option><option value="Horizontal">Horizontal</option>
+              </select>
+              <button id="at-print">Print / PDF</button>
+            </div>
+          </div>
+          <div class="downloads" id="sheet-downloads"></div>
+          <p class="muted small">Automatic transcription is a starting draft. Open the MusicXML in <a href="https://musescore.org" target="_blank" rel="noopener">MuseScore</a> (free) to fix notes.</p>
+          <div id="at-status" class="muted">Loading sheet music…</div>
+          <div id="at-wrap" class="at-wrap"><div id="alphatab"></div></div>
+        </div>
+      </section>
+
+      <div class="transport" id="transport">
+        <button id="tp-play" class="play-btn" aria-label="Play">▶</button>
+        <span id="tp-time" class="time">0:00</span>
+        <input id="tp-seek" type="range" min="0" max="1000" value="0" aria-label="Position">
+        <span id="tp-dur" class="time">0:00</span>
+        <label class="speed">Speed
+          <select id="tp-speed">
+            <option value="0.5">50%</option><option value="0.6">60%</option><option value="0.75">75%</option>
+            <option value="0.85">85%</option><option value="1" selected>100%</option><option value="1.1">110%</option>
+            <option value="1.25">125%</option>
+          </select>
+        </label>
+        <button id="tp-loop" class="chip" title="Set loop start, then end">Loop A-B</button>
+        <span id="tp-current-chord" class="current-chord"></span>
+      </div>
+    </div>
+  </template>
+
+  <script src="/static/vendor/alphatab/alphaTab.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
