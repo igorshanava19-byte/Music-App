@@ -35,10 +35,11 @@ class InstrumentSpec:
     max_polyphony: int = 6
 
 
+# bass/guitar/piano thresholds tuned on tools/benchmark.py (frame 0.2 keeps chord tones the model is unsure of)
 SPECS = {
-    "bass": InstrumentSpec(30, 400, 0.7, 0.3, 90, monophonic="lowest"),
-    "guitar": InstrumentSpec(78, 900, 0.65, 0.3, 70, max_polyphony=6),
-    "piano": InstrumentSpec(27, 4200, 0.65, 0.3, 60, max_polyphony=10),
+    "bass": InstrumentSpec(30, 400, 0.6, 0.2, 90, monophonic="lowest"),
+    "guitar": InstrumentSpec(78, 900, 0.7, 0.2, 70, max_polyphony=6),
+    "piano": InstrumentSpec(27, 4200, 0.6, 0.2, 60, max_polyphony=10),
     "other": InstrumentSpec(60, 3000, 0.65, 0.32, 80, max_polyphony=6),
     "vocals": InstrumentSpec(80, 1100, 0.6, 0.3, 100, monophonic="loudest"),
 }

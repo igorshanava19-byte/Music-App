@@ -13,8 +13,9 @@ WEB_DIR = ROOT_DIR / "web"
 HOST = os.environ.get("MUSICAPP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MUSICAPP_PORT", "8000"))
 
-# Demucs model that splits the song into 6 stems (vocals, drums, bass, guitar, piano, other).
-STEMS_MODEL = os.environ.get("MUSICAPP_STEMS_MODEL", "htdemucs_6s")
+# Model that splits the song into 6 stems (vocals, drums, bass, guitar, piano, other). "auto" picks
+# BS-RoFormer-SW on a GPU (far cleaner guitar/piano/bass: see tools/benchmark.py) and Demucs htdemucs_6s on CPU.
+STEMS_MODEL = os.environ.get("MUSICAPP_STEMS_MODEL", "auto")
 # Model used for the vocal estimate the minus track is built from. "auto" picks the
 # slower, cleaner fine-tuned model on a GPU and reuses the 6-stem result on CPU.
 MINUS_MODEL = os.environ.get("MUSICAPP_MINUS_MODEL", "auto")
@@ -44,7 +45,15 @@ def device() -> str:
     return "cpu"
 
 
+def stems_model() -> str:
+    if STEMS_MODEL != "auto":
+        return STEMS_MODEL
+    import importlib.util
+
+    return "bs_roformer_sw" if device() == "cuda" and importlib.util.find_spec("bs_roformer") else "htdemucs_6s"
+
+
 def minus_model() -> str:
     if MINUS_MODEL != "auto":
         return MINUS_MODEL
-    return "htdemucs_ft" if device() == "cuda" else STEMS_MODEL
+    return "htdemucs_ft" if device() == "cuda" else stems_model()

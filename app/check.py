@@ -32,7 +32,7 @@ def main() -> int:
     print(f"ffmpeg: {audio_io.ffmpeg_exe()}")
     print(f"deno (for YouTube): {audio_io._deno_path() or 'NOT FOUND - YouTube links may fail'}")
 
-    for name in dict.fromkeys([config.STEMS_MODEL, config.minus_model()]):
+    for name in dict.fromkeys([config.stems_model(), config.minus_model()]):
         print(f"Downloading / loading separation model {name} ...")
         try:
             separation.get_model(name)

@@ -63,9 +63,9 @@ function capoTip(segments, shift) {
     const sc = weight(capo);
     if (sc > bestScore + 0.15) { best = capo; bestScore = sc; }
   }
-  if (best === 0) return '';
+  if (best === 0) return null;
   const shapes = [...new Set(segments.map((c) => pcName(c.root + shift - best, false) + c.quality))].slice(0, 6);
-  return `🎸 Easier on guitar: capo ${best}, play as ${shapes.join(', ')}`;
+  return { capo: best, text: `🎸 Easier on guitar: capo ${best}, play as ${shapes.join(', ')}` };
 }
 
 /* ------------------------------------------------------------------ router */
@@ -261,11 +261,10 @@ class Mixer {
     }));
     this.all = [...this.stems, ...this.files];
     this.source = null; // key of the file being heard, or null for the stem mix
-    this.master = this.stems.find((s) => s.present) || this.stems[0];
     this.duration = r.duration;
+    for (const s of this.all) s.audio.addEventListener('ended', () => { if (s === this.master) this.pause(); });
     this.buildUI();
     this.applyGains();
-    this.master.audio.addEventListener('ended', () => this.pause());
     this.raf = requestAnimationFrame(() => this.tick());
     this.lastSync = 0;
     this.keyHandler = (e) => {
@@ -299,7 +298,7 @@ class Mixer {
       f.btn.onclick = () => {
         if (this.playing && this.source === f.key) return this.pause();
         this.preset(presetOf[f.key]);
-        this.play();
+        if (!this.playing) this.play();
       };
     }
     $('#minus-play').append(...this.files.map((f) => f.btn));
@@ -319,12 +318,25 @@ class Mixer {
       s.solo = false;
       s.mute = name === 'minus' ? s.stem === 'vocals' : name === 'vocals' ? s.stem !== 'vocals' : false;
     }
-    this.source = { minus: 'minus', vocals: 'vocals_only', all: 'original' }[name] || null;
+    this.setSource({ minus: 'minus', vocals: 'vocals_only', all: 'original' }[name] || null);
     this.applyGains();
     this.markPreset(name);
   }
   markPreset(name) { $$('[data-preset]').forEach((b) => b.classList.toggle('on', b.dataset.preset === name)); }
-  clearPreset() { this.source = null; this.markPreset(null); } // back to the stem mix
+  clearPreset() { this.setSource(null); this.markPreset(null); } // back to the stem mix
+
+  // Only what is heard plays: a muted element kept running still gets re-seeked to stay in sync,
+  // and each re-seek is an audible skip in whatever it is synced to (and a wasted download).
+  setSource(src) {
+    if (src === this.source) return;
+    const t = this.time, wasPlaying = this.playing;
+    this.source = src;
+    for (const s of this.all) if (!this.active.includes(s)) s.audio.pause();
+    for (const s of this.active) s.audio.currentTime = t;
+    if (wasPlaying) this.play();
+  }
+  get active() { return this.source ? [this.files.find((f) => f.key === this.source)] : this.stems; }
+  get master() { return this.active.find((s) => s.present !== false) || this.active[0]; }
 
   playOnly(s) {
     const already = this.playing && !this.source && this.stems.every((x) => x.solo === (x === s));
@@ -332,7 +344,7 @@ class Mixer {
     for (const x of this.stems) x.solo = x === s;
     this.clearPreset();
     this.applyGains();
-    this.play();
+    if (!this.playing) this.play();
   }
 
   applyGains() {
@@ -362,8 +374,8 @@ class Mixer {
   async play() {
     this.onPlay && this.onPlay();
     const t = this.time;
-    for (const s of this.all) s.audio.currentTime = t;
-    await Promise.all(this.all.map((s) => s.audio.play().catch(() => {})));
+    for (const s of this.active) s.audio.currentTime = t;
+    await Promise.all(this.active.map((s) => s.audio.play().catch(() => {})));
     $('#tp-play').textContent = '❚❚';
     this.updatePlayButtons();
   }
@@ -375,7 +387,7 @@ class Mixer {
   toggle() { this.playing ? this.pause() : this.play(); }
   seek(t) {
     t = Math.max(0, Math.min(this.duration, t));
-    for (const s of this.all) s.audio.currentTime = t;
+    for (const s of this.active) s.audio.currentTime = t;
   }
   setSpeed(rate) {
     for (const s of this.all) { s.audio.playbackRate = rate; s.audio.preservesPitch = true; }
@@ -402,7 +414,7 @@ class Mixer {
     const now = performance.now();
     if (this.playing && now - this.lastSync > 500) {
       this.lastSync = now;
-      for (const s of this.all) {
+      for (const s of this.active) {
         if (s !== this.master && Math.abs(s.audio.currentTime - t) > 0.04) s.audio.currentTime = t;
       }
     }
@@ -427,23 +439,28 @@ class ChordView {
     this.r = job.result;
     this.mixer = mixer;
     this.shift = 0;
+    this.capo = 0; // with a capo the chart shows the shapes to play; the song still sounds in the same key
     this.nashville = false;
     this.nowBar = -1;
     $('#tr-down').onclick = () => { this.shift = Math.max(-11, this.shift - 1); this.render(); };
     $('#tr-up').onclick = () => { this.shift = Math.min(11, this.shift + 1); this.render(); };
+    $('#capo').onchange = (e) => { this.capo = Number(e.target.value); this.render(); };
     $('#show-nashville').onchange = (e) => { this.nashville = e.target.checked; this.render(); };
     this.render();
     mixer.onTime((t) => this.follow(t));
   }
 
-  label(c) { return chordLabel(c, this.shift, this.r.key_tonic + (this.nashville ? 0 : 0), this.r.key_mode, this.nashville); }
+  label(c) { return chordLabel(c, this.shift - this.capo, this.r.key_tonic, this.r.key_mode, this.nashville); }
 
   render() {
     const r = this.r;
+    const name = (pc) => `${pcName(pc, keyUsesFlats(pc, r.key_mode))} ${r.key_mode}`;
     const tonic = r.key_tonic + this.shift;
     $('#tr-value').textContent = this.shift > 0 ? `+${this.shift}` : String(this.shift);
-    $('#tr-key').textContent = `${pcName(tonic, keyUsesFlats(tonic, r.key_mode))} ${r.key_mode}`;
-    $('#capo-tip').textContent = this.nashville ? '' : capoTip(r.chords.segments, this.shift);
+    $('#capo').value = String(this.capo);
+    $('#tr-key').textContent = this.capo ? `${name(tonic)} (playing ${name(tonic - this.capo)} shapes)` : name(tonic);
+    const tip = this.nashville || this.capo ? null : capoTip(r.chords.segments, this.shift);
+    $('#capo-tip').replaceChildren(...(tip ? [tip.text, ' ', el('button', { class: 'chip', onclick: () => { this.capo = tip.capo; this.render(); } }, `Use capo ${tip.capo}`)] : []));
 
     const seen = new Map();
     for (const c of r.chords.segments) { const l = this.label(c); if (!seen.has(l)) seen.set(l, c); }

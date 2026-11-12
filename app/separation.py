@@ -26,8 +26,34 @@ _models: dict[str, torch.nn.Module] = {}
 _lock = threading.Lock()
 
 
+ROFORMER = "bs_roformer_sw"  # BS-RoFormer-SW by jarredou, 6 stems (pip install bs-roformer-infer, ~700 MB weights)
+
+
+def _roformer():
+    from ml_collections import ConfigDict
+    import yaml
+    from bs_roformer import DEFAULT_MODEL, ensure_model_assets, get_model_from_config
+    from bs_roformer.inference import SafeLoaderWithTuple
+
+    import sys
+
+    sys.stdout.reconfigure(errors="replace")  # its downloader prints emoji, which crash a cp1252 Windows pipe
+    ckpt, cfg_path = ensure_model_assets(DEFAULT_MODEL)  # downloads + sha256-checks on first use
+    with open(cfg_path) as f:
+        cfg = ConfigDict(yaml.load(f, Loader=SafeLoaderWithTuple))
+    model = get_model_from_config("bs_roformer", cfg)
+    model.load_state_dict(torch.load(ckpt, map_location="cpu"))
+    model.config = cfg
+    model.samplerate = 44100
+    model.sources = list(cfg.training.instruments)
+    return model
+
+
 def get_model(name: str):
     with _lock:
+        if name == ROFORMER and name not in _models:
+            log.info("loading %s", name)
+            _models[name] = _roformer().to(config.device()).eval()
         if name not in _models:
             from demucs.pretrained import get_model as demucs_get_model
 
@@ -41,11 +67,19 @@ def get_model(name: str):
 
 def run_model(name: str, mix: np.ndarray, sr: int, progress: Callable[[float], None] | None = None) -> dict[str, np.ndarray]:
     """Separate a [2, n] float mix; returns {stem_name: [2, n] array}."""
-    from demucs.apply import apply_model
-
     model = get_model(name)
     if sr != model.samplerate:
         raise ValueError(f"expected {model.samplerate} Hz audio, got {sr}")
+    if name == ROFORMER:
+        from bs_roformer.utils import demix_track
+
+        out, _ = demix_track(model.config, model, torch.from_numpy(mix), config.device())
+        if config.device() == "cuda":
+            torch.cuda.empty_cache()
+        return {k: v.astype(np.float32) for k, v in out.items()}
+
+    from demucs.apply import apply_model
+
     wav = torch.from_numpy(mix)
     ref = wav.mean(0)
     mean, std = ref.mean(), ref.std() + 1e-8

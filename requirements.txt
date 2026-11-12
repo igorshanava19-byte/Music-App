@@ -1,6 +1,7 @@
 # Installed by setup.bat / setup.sh. PyTorch and basic-pitch are installed separately
 # (PyTorch needs the right CUDA build; basic-pitch would otherwise pull in TensorFlow).
 demucs==4.1.0
+bs-roformer-infer==0.1.5
 librosa==0.11.0
 resampy==0.4.2
 pretty-midi==0.2.11.post0

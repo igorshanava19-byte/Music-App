@@ -42,7 +42,7 @@ AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".
 
 @app.get("/api/system")
 def system() -> dict:
-    info = {"device": config.device(), "stems_model": config.STEMS_MODEL, "minus_model": config.minus_model()}
+    info = {"device": config.device(), "stems_model": config.stems_model(), "minus_model": config.minus_model()}
     if info["device"] == "cuda":
         import torch
 

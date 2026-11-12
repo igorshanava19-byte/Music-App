@@ -29,6 +29,12 @@ def beat_grid(rhythm_mono: np.ndarray, duration: float) -> tuple[float, np.ndarr
         tempo = tempo if tempo > 0 else 120.0
         return tempo, np.arange(0.0, duration + 60 / tempo, 60 / tempo)
     period = float(np.median(np.diff(beats)))
+    if 60.0 / period < 65:  # likely half time (no drums to mark beats 2 and 4)
+        mids = beats[:-1] + np.diff(beats) / 2
+        frame = lambda t: np.clip(librosa.time_to_frames(t, sr=SR, hop_length=HOP), 0, len(onset) - 1)
+        if 60.0 / period < 50 or onset[frame(mids)].mean() > 0.5 * onset[frame(beats)].mean():
+            beats = np.sort(np.concatenate([beats, mids]))
+            period /= 2
     # extend the grid to the start and end of the song
     head = np.arange(beats[0] - period, -period * 0.5, -period)[::-1]
     tail = np.arange(beats[-1] + period, duration + period, period)
@@ -70,16 +76,33 @@ _MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2
 _MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 
-def detect_key(chroma: np.ndarray) -> tuple[int, str, float]:
-    """Return (tonic_pc, 'major'|'minor', confidence) from a [12, T] chromagram."""
+def detect_key(chroma: np.ndarray, chords: list[dict] | None = None) -> tuple[int, str, float]:
+    """Return (tonic_pc, 'major'|'minor', confidence) from a [12, T] chromagram.
+
+    With the detected chords (from recognize_chords), a key also scores by how much of the song its
+    chords fit its scale and how long its own tonic chord sounds: that tells relative keys apart
+    (C minor / Eb major share every note) and keys a fifth apart, where the note profile alone often fails.
+    """
     profile = chroma.mean(1)
-    best = (0, "major", -2.0)
+    total = sum(c["end_beat"] - c["start_beat"] for c in chords or []) or 1
+    best = (0, "major", -2.0, -9.0)
     for mode, ref in (("major", _MAJOR), ("minor", _MINOR)):
         for tonic in range(12):
             r = float(np.corrcoef(profile, np.roll(ref, tonic))[0, 1])
-            if r > best[2]:
-                best = (tonic, mode, r)
-    return best
+            score = r
+            if chords:
+                # minor also allows the raised 7th (the major V / V7)
+                scale = {(tonic + s) % 12 for s in ((0, 2, 4, 5, 7, 9, 11) if mode == "major" else (0, 2, 3, 5, 7, 8, 10, 11))}
+                tonic_qualities = ("", "maj7") if mode == "major" else ("m", "m7")
+                fit = home = 0
+                for c in chords:
+                    d = c["end_beat"] - c["start_beat"]
+                    fit += d * all((c["root"] + iv) % 12 in scale for iv in theory.QUALITIES[c["quality"]])
+                    home += d * (c["root"] == tonic and c["quality"] in tonic_qualities)
+                score += fit / total + 0.5 * home / total
+            if score > best[3]:
+                best = (tonic, mode, r, score)
+    return best[:3]
 
 
 # ---------------------------------------------------------------- chords
@@ -129,12 +152,13 @@ def recognize_chords(harmonic: np.ndarray, bass: np.ndarray | None, beats: np.nd
         a = beat_frames[i]
         b = beat_frames[i + 1] if i + 1 < len(beats) else n
         if b > a:
-            seg_chroma[:, i] = np.median(chroma[:, a:b], axis=1)
+            seg_chroma[:, i] = chroma[:, a:b].mean(1)
     energy = _beat_rms(harmonic, beats)
 
     bass_seg = None
     if bass is not None:
         # A0-A3: the bass register, below where a pianist's right hand plays
+        # (stopping at C3 scored better on guitar-only test songs, but froze a real piano ballad's intro on A)
         bchroma = librosa.feature.chroma_cqt(y=bass, sr=SR, hop_length=HOP, fmin=librosa.note_to_hz("A0"), n_octaves=3)
         bass_seg = np.zeros((12, len(beats)))
         for i in range(len(beats)):

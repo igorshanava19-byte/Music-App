@@ -69,7 +69,7 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
 
     # 2. separate --------------------------------------------------------------
     progress("separate", 0.0, f"Separating instruments ({config.device().upper()})")
-    stems = separation.run_model(config.STEMS_MODEL, mix, sr,
+    stems = separation.run_model(config.stems_model(), mix, sr,
                                  progress=lambda f: progress("separate", f, f"Separating instruments ({config.device().upper()})"))
     instruments = []
     for name, audio in stems.items():
@@ -81,7 +81,7 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
 
     # 3. minus track -----------------------------------------------------------
     minus_model = config.minus_model()
-    if minus_model != config.STEMS_MODEL:
+    if minus_model != config.stems_model():
         vocals = separation.run_model(minus_model, mix, sr,
                                       progress=lambda f: progress("minus", f))["vocals"]
     else:
@@ -96,29 +96,9 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
 
     # 4. tempo / key / chords --------------------------------------------------
     progress("analyze", 0.0)
-    mono = {k: analysis.to_mono(v, sr) for k, v in stems.items()}
     present = {i["stem"] for i in instruments if i["present"]}
-    harmonic = sum(mono[k] for k in ("guitar", "piano", "other") if k in mono)
-    if not any(k in present for k in ("guitar", "piano", "other")):
-        harmonic = harmonic + mono["vocals"] * 0.5  # a cappella-ish: use the voice
-    rhythm = harmonic + mono["bass"] + mono["drums"]
-    tempo, beats = analysis.beat_grid(rhythm, duration)
-    progress("analyze", 0.3)
-    # no bass guitar (e.g. a piano ballad): the low end of the keys/guitar carries the roots
-    bass_for_chords = mono["bass"] if "bass" in present else harmonic
-    # key first (for chord spelling), from the same harmonic signal
-    import librosa
-    key_chroma = librosa.feature.chroma_cqt(y=harmonic + 0.5 * mono["bass"], sr=analysis.SR, hop_length=analysis.HOP)
-    tonic, mode, key_conf = analysis.detect_key(key_chroma)
-    fifths = theory.key_fifths(tonic, mode)
-    flats = theory.use_flats(fifths)
-    chord_segments, _ = analysis.recognize_chords(harmonic, bass_for_chords, beats, flats)
-    progress("analyze", 0.8)
-    kick = analysis.beat_strengths(mono["drums"], beats) if "drums" in present else None
-    phase = analysis.downbeat_phase(beats, [c["start_beat"] for c in chord_segments], kick)
-    grid = notation.Grid(beats, phase)
-    n_bars = max(1, math.ceil(grid.tick(duration) / notation.BAR_TICKS))
-    chart = _chord_chart(chord_segments, grid, n_bars, duration)
+    tempo, tonic, mode, key_conf, flats, chord_segments, grid, n_bars, chart = analyze(
+        stems, sr, present, duration, lambda f: progress("analyze", f))
     progress("analyze", 1.0)
 
     # 5. transcribe ------------------------------------------------------------
@@ -174,6 +154,35 @@ def run(job_dir: Path, source: dict, report: Callable[[str, str, float], None]) 
     (job_dir / "result.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     original.unlink(missing_ok=True)  # the mp3 + stems are enough from here on
     return result
+
+
+def analyze(stems: dict, sr: int, present: set[str], duration: float, progress=lambda f: None):
+    """Tempo, key and chords from the stems (also used by tools/benchmark tuning)."""
+    import librosa
+
+    mono = {k: analysis.to_mono(v, sr) for k, v in stems.items()}
+    harmonic = sum(mono[k] for k in ("guitar", "piano", "other") if k in mono)
+    if not any(k in present for k in ("guitar", "piano", "other")):
+        harmonic = harmonic + mono["vocals"] * 0.5  # a cappella-ish: use the voice
+    rhythm = harmonic + mono["bass"] + mono["drums"]
+    tempo, beats = analysis.beat_grid(rhythm, duration)
+    progress(0.3)
+    # no bass guitar (e.g. a piano ballad): the low end of the keys/guitar carries the roots
+    bass_for_chords = mono["bass"] if "bass" in present else harmonic
+    # key from the same harmonic signal and the chords
+    key_chroma = librosa.feature.chroma_cqt(y=harmonic + 0.5 * mono["bass"], sr=analysis.SR, hop_length=analysis.HOP)
+    chord_segments, _ = analysis.recognize_chords(harmonic, bass_for_chords, beats, False)
+    tonic, mode, key_conf = analysis.detect_key(key_chroma, chord_segments)
+    flats = theory.use_flats(theory.key_fifths(tonic, mode))
+    for c in chord_segments:  # spelled for the key
+        c["name"] = theory.chord_name(c["root"], c["quality"], c["bass"], flats)
+    progress(0.8)
+    kick = analysis.beat_strengths(mono["drums"], beats) if "drums" in present else None
+    phase = analysis.downbeat_phase(beats, [c["start_beat"] for c in chord_segments], kick)
+    grid = notation.Grid(beats, phase)
+    n_bars = max(1, math.ceil(grid.tick(duration) / notation.BAR_TICKS))
+    chart = _chord_chart(chord_segments, grid, n_bars, duration)
+    return tempo, tonic, mode, key_conf, flats, chord_segments, grid, n_bars, chart
 
 
 def _chord_chart(segments: list[dict], grid: notation.Grid, n_bars: int, duration: float) -> dict:
