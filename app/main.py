@@ -6,11 +6,11 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config
+from . import auth, config
 from .jobs import store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -24,7 +24,8 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="Music App", lifespan=lifespan)
+app = FastAPI(title="Music App", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.middleware("http")(auth.middleware)
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".aiff", ".aif",
                     ".mp4", ".mkv", ".webm", ".mov"}
@@ -112,6 +113,16 @@ def job_file(job_id: str, name: str, download: int = 0):
     return FileResponse(path, media_type=media, filename=filename)
 
 
+@app.get("/login")
+def login_form():
+    return RedirectResponse("/") if not auth.enabled() else auth.login_page()
+
+
+@app.post("/login")
+def login(request: Request, password: str = Form("")):
+    return auth.check_login(request, password)
+
+
 @app.get("/")
 def index():
     return FileResponse(config.WEB_DIR / "index.html")
@@ -128,7 +139,8 @@ def run() -> None:
     import uvicorn
 
     url = f"http://{config.HOST}:{config.PORT}"
-    print(f"\n  Music App is running at {url}  (close this window to stop it)\n")
+    print(f"\n  Music App is running at {url}  (close this window to stop it)")
+    print(f"  Password protection: {'ON' if auth.enabled() else 'off (set MUSICAPP_PASSWORD for a live link)'}\n")
     if os.environ.get("MUSICAPP_OPEN_BROWSER") == "1":
         threading.Timer(2.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")

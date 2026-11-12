@@ -21,6 +21,7 @@ const fmtTime = (s) => {
 
 async function apiGet(path) {
   const res = await fetch(path);
+  if (res.status === 401) { location.href = '/login'; throw new Error('Please log in'); }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
   return res.json();
 }

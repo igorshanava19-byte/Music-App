@@ -6,6 +6,9 @@ rem If YouTube says "Sign in to confirm you're not a bot", let the app use the
 rem YouTube cookies from a browser you're signed in with (chrome, edge, firefox, brave):
 rem set MUSICAPP_COOKIES_FROM_BROWSER=chrome
 
+rem Password for the live link (required when the app is reachable from the internet):
+rem set MUSICAPP_PASSWORD=choose-a-long-password
+
 rem Use a different port (default 8000):
 rem set MUSICAPP_PORT=8000
 
